@@ -1,0 +1,551 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style></head><body><title>微動ポン</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Zen+Kaku+Gothic+New:wght@500;700;900&display=swap">
+<style>
+/* Layout: one phone-width column read like a field instrument — status, live trace, sensitivity, then folded detail; controls pinned under the thumb. */
+:root{
+  --bg:#e9edf1; --surface:#f8fafb; --ink:#13202b; --muted:#566675; --line:#cbd4dc;
+  --signal:#0a6f78; --thr:#b84a06; --hit:#cf1d58; --on-strong:#ffffff;
+  --font-ui:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic UI","Noto Sans JP",system-ui,sans-serif;
+  --font-data:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e151b; --surface:#16202a; --ink:#e4ecf2; --muted:#8b9cab; --line:#2a3945;
+    --signal:#53cfd0; --thr:#ffa44d; --hit:#ff5f8d; --on-strong:#0e151b; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e151b; --surface:#16202a; --ink:#e4ecf2; --muted:#8b9cab; --line:#2a3945;
+  --signal:#53cfd0; --thr:#ffa44d; --hit:#ff5f8d; --on-strong:#0e151b; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-ui);font-size:15px;line-height:1.55;
+  padding-inline:16px;padding-block:14px 132px;-webkit-tap-highlight-color:transparent}
+.app{max-width:520px;margin-inline:auto;display:flex;flex-direction:column;gap:14px}
+.num{font-family:var(--font-data);font-variant-numeric:tabular-nums}
+.label{font-size:11px;letter-spacing:.08em;color:var(--muted);font-weight:700}
+
+.top{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.brand{font-weight:900;font-size:15px;letter-spacing:.04em}
+.count{font-size:13px;color:var(--muted)}
+.count b{font-family:var(--font-data);font-size:20px;color:var(--ink);font-weight:600}
+
+.status{font-weight:900;font-size:clamp(26px,8.4vw,38px);line-height:1.15;text-wrap:balance;min-height:1.2em}
+.status[data-s="hit"]{color:var(--hit)}
+.status[data-s="idle"]{color:var(--signal)}
+.status[data-s="off"]{color:var(--muted)}
+.sub{color:var(--muted);font-size:13px;min-height:1.5em}
+
+.scope{background:var(--surface);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.scope canvas{display:block;width:100%;height:210px}
+.read{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding:10px 12px 6px}
+.big{font-family:var(--font-data);font-size:clamp(34px,11vw,48px);font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+.unit{font-size:12px;color:var(--muted);margin-left:4px}
+.pct{text-align:right;font-size:12px;color:var(--muted)}
+.pct b{display:block;font-family:var(--font-data);font-size:22px;color:var(--ink);font-weight:600}
+.bar{position:relative;height:22px;margin:4px 12px 12px;background:var(--bg);border-radius:3px;overflow:hidden}
+.bar i{position:absolute;inset:0 auto 0 0;width:100%;background:var(--signal);transform-origin:left;transform:scaleX(0)}
+.bar i.over{background:var(--hit)}
+.bar .mk{position:absolute;top:0;bottom:0;width:2px;background:var(--thr)}
+.bar .mk.rel{background:none;border-left:2px dotted var(--thr);opacity:.8}
+.bar .mk.nz{background:var(--muted);opacity:.7}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;padding:0 12px 10px;font-size:11px;color:var(--muted)}
+.legend span::before{content:"";display:inline-block;width:10px;height:2px;margin-right:5px;vertical-align:middle;background:var(--c)}
+
+.msg{border:1px solid var(--thr);border-radius:6px;padding:12px;font-size:14px;display:flex;flex-direction:column;gap:10px;background:var(--surface)}
+.msg p{margin:0}
+.demo{border:1px dashed var(--muted);border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.demo .row{display:flex;gap:8px;flex-wrap:wrap}
+
+section.blk{display:flex;flex-direction:column;gap:10px}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{flex:1 1 auto;min-height:42px;padding:6px 10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  font:700 13px var(--font-ui);border-radius:4px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.ctl{display:flex;flex-direction:column;gap:2px}
+.ctl .hd{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:13px;font-weight:700}
+.ctl .hd output{font-family:var(--font-data);font-weight:600;font-variant-numeric:tabular-nums}
+.ctl small{color:var(--muted);font-size:12px}
+.rng{display:flex;align-items:center;gap:8px}
+input[type=range]{flex:1;min-width:0;width:100%;height:36px;accent-color:var(--signal);margin:0}
+.nudge{width:40px;height:40px;flex:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:4px;font:600 18px var(--font-data);cursor:pointer}
+.advice{font-size:13px;font-weight:700;padding:8px 10px;border-left:4px solid var(--c,var(--muted));background:var(--surface)}
+.advice span{display:block;font-weight:500;color:var(--muted);font-size:12px}
+
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.grid div{background:var(--surface);padding:8px 10px;min-width:0}
+.grid .v{font-family:var(--font-data);font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.grid .wide{grid-column:1/-1}
+
+details{border-top:1px solid var(--line);padding-top:10px}
+summary{font-weight:900;font-size:15px;cursor:pointer;padding:6px 0}
+details>.in{display:flex;flex-direction:column;gap:14px;padding-top:10px}
+.chk{display:flex;align-items:center;gap:10px;font-weight:700;font-size:14px;min-height:40px}
+.chk input{width:22px;height:22px;accent-color:var(--signal)}
+table.dbg{width:100%;border-collapse:collapse;font-family:var(--font-data);font-size:13px;font-variant-numeric:tabular-nums}
+table.dbg td{padding:4px 6px;border-bottom:1px solid var(--line)}
+table.dbg td:last-child{text-align:right}
+.btn{min-height:44px;padding:8px 14px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:4px;font:700 14px var(--font-ui);cursor:pointer}
+.foot{color:var(--muted);font-size:12px}
+
+.dock{position:fixed;left:0;right:0;bottom:0;background:var(--bg);border-top:1px solid var(--line);
+  padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));z-index:5}
+.dock .in{max-width:520px;margin-inline:auto;display:flex;gap:10px}
+.dock button{min-height:64px;border-radius:6px;font:900 18px var(--font-ui);cursor:pointer;border:2px solid var(--ink)}
+#go{flex:2;background:var(--ink);color:var(--bg)}
+#go[data-on="1"]{background:var(--bg);color:var(--ink)}
+#cal{flex:1.25;background:var(--bg);color:var(--ink);font-size:12px;white-space:nowrap;padding:0 4px}
+#cal:disabled{opacity:.4}
+button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--signal);outline-offset:2px}
+#flash{position:fixed;inset:0;background:var(--hit);opacity:0;pointer-events:none;z-index:9}
+</style>
+
+<div class="app">
+  <div class="top">
+    <div class="brand">微動ポン</div>
+    <div class="count">検知 <b id="cnt">0</b> 回</div>
+  </div>
+
+  <div>
+    <div class="status" id="status" data-s="off">停止中</div>
+    <div class="sub" id="sub">スマホを身体に固定して「センサー開始」を押してください。</div>
+  </div>
+
+  <div class="msg" id="msg" hidden>
+    <p id="msgText"></p>
+    <button class="btn" id="demoBtn" type="button">デモ信号で操作を試す</button>
+  </div>
+
+  <div class="demo" id="demoBox" hidden>
+    <div class="label">デモ信号（疑似データ。実際のセンサー値ではありません）</div>
+    <div class="row">
+      <button class="btn" id="demoTwitch" type="button">ピクッと動かす</button>
+      <button class="btn" id="demoTremor" type="button">細かく震わせる</button>
+    </div>
+  </div>
+
+  <div class="scope">
+    <canvas id="cv" aria-label="動きの強さと閾値の推移"></canvas>
+    <div class="read">
+      <div><div class="label">現在の動きの強さ</div><span class="big" id="val">0.0000</span><span class="unit" id="unit">m/s²</span></div>
+      <div class="pct">閾値まで<b id="pct">0%</b></div>
+    </div>
+    <div class="bar" aria-hidden="true"><i id="fill"></i><span class="mk nz" id="mkN"></span><span class="mk rel" id="mkR"></span><span class="mk" id="mkT" style="left:60%"></span></div>
+    <div class="legend"><span style="--c:var(--signal)">動き</span><span style="--c:var(--thr)">検知閾値</span><span style="--c:var(--thr)">解除閾値（点線）</span><span style="--c:var(--muted)">ノイズフロア</span></div>
+  </div>
+
+  <section class="blk">
+    <div class="label">感度</div>
+    <div class="seg" id="presetSeg">
+      <button type="button" data-v="low">低感度</button>
+      <button type="button" data-v="std">標準</button>
+      <button type="button" data-v="high">高感度</button>
+      <button type="button" data-v="ultra">超高感度</button>
+      <button type="button" data-v="custom">カスタム</button>
+    </div>
+    <div class="ctl">
+      <div class="hd"><label for="kRange">静止時ノイズの何倍で反応するか</label><output id="kOut">6.0σ</output></div>
+      <div class="rng"><button class="nudge" type="button" id="kDn" aria-label="倍率を下げる">−</button><input type="range" id="kRange" min="0" max="1000" step="1"><button class="nudge" type="button" id="kUp" aria-label="倍率を上げる">＋</button></div>
+    </div>
+    <div class="ctl">
+      <div class="hd"><label for="thrRange">検知閾値（直接指定）</label><output id="thrOut">0.0000</output></div>
+      <div class="rng"><button class="nudge" type="button" id="tDn" aria-label="閾値を2%下げる">−</button><input type="range" id="thrRange" min="0" max="1000" step="1"><button class="nudge" type="button" id="tUp" aria-label="閾値を2%上げる">＋</button></div>
+      <small>対数スケールです。小さい値ほど細かく動きます。−/＋ は2%ずつ。</small>
+    </div>
+    <div class="advice" id="advice">未キャリブレーション<span>開始すると自動で静止時ノイズを測ります。</span></div>
+  </section>
+
+  <div class="grid">
+    <div><div class="label">現在の差分値</div><div class="v" id="gDelta">–</div></div>
+    <div><div class="label">ノイズレベル（今）</div><div class="v" id="gLive">–</div></div>
+    <div><div class="label">ノイズフロア（校正）</div><div class="v" id="gNoise">–</div></div>
+    <div><div class="label">現在の閾値</div><div class="v" id="gThr">–</div></div>
+    <div class="wide"><div class="label">X / Y / Z</div><div class="v" id="gXYZ">– / – / –</div></div>
+    <div><div class="label">センサー更新頻度</div><div class="v" id="gHz">–</div></div>
+    <div><div class="label">最後に検知した時刻</div><div class="v" id="gLast">–</div></div>
+  </div>
+
+  <details id="setDetails">
+    <summary>詳細設定</summary>
+    <div class="in">
+      <div class="ctl"><div class="hd"><span>検知方式</span></div>
+        <div class="seg" id="modeSeg"><button type="button" data-v="instant">瞬間変化</button><button type="button" data-v="rms">微振動（RMS）</button></div>
+        <small id="modeHelp"></small></div>
+      <div class="ctl" id="winCtl"><div class="hd"><label for="winRange">微振動の時間窓</label><output id="winOut"></output></div>
+        <input type="range" id="winRange" min="100" max="1000" step="10"></div>
+      <div class="ctl"><div class="hd"><span>入力センサー</span></div>
+        <div class="seg" id="srcSeg"><button type="button" data-v="accel">加速度</button><button type="button" data-v="gyro">ジャイロ（回転）</button></div>
+        <small>加速度が粗く丸められる端末では、ジャイロのほうが小さな動きを拾える場合があります。</small></div>
+      <div class="ctl"><div class="hd"><span>平滑化</span></div>
+        <div class="seg" id="smSeg"><button type="button" data-v="1">生データ重視</button><button type="button" data-v="2">軽い平滑化</button><button type="button" data-v="4">標準平滑化</button></div></div>
+      <div class="ctl"><div class="hd"><label for="relRange">解除閾値（検知閾値に対する割合）</label><output id="relOut"></output></div>
+        <input type="range" id="relRange" min="30" max="98" step="1">
+        <small>値がここまで下がると、次の検知ができるようになります。</small></div>
+      <div class="ctl"><div class="hd"><label for="cdRange">クールダウン</label><output id="cdOut"></output></div>
+        <input type="range" id="cdRange" min="50" max="2000" step="10"></div>
+      <label class="chk"><input type="checkbox" id="sndOn"> 音を鳴らす</label>
+      <div class="ctl"><div class="hd"><label for="volRange">音量</label><output id="volOut"></output></div><input type="range" id="volRange" min="0" max="100" step="1"></div>
+      <div class="ctl"><div class="hd"><label for="pitRange">音の高さ</label><output id="pitOut"></output></div><input type="range" id="pitRange" min="180" max="1600" step="10"></div>
+      <div class="ctl"><div class="hd"><label for="lenRange">音の長さ</label><output id="lenOut"></output></div><input type="range" id="lenRange" min="30" max="400" step="5"></div>
+      <button class="btn" type="button" id="testSnd">「ポン」を試聴</button>
+      <label class="chk"><input type="checkbox" id="flashOn"> 検知時に画面をフラッシュ</label>
+      <button class="btn" type="button" id="resetCnt">検知回数を0に戻す</button>
+    </div>
+  </details>
+
+  <details id="dbgDetails">
+    <summary>詳細データ</summary>
+    <div class="in"><table class="dbg"><tbody id="dbg"></tbody></table></div>
+  </details>
+
+  <p class="foot">センサー値はこの端末の中だけで処理します。どこにも送信・保存しません。iPhoneは消音スイッチがオンだと音が出ません。</p>
+</div>
+
+<div class="dock"><div class="in">
+  <button id="go" type="button">センサー開始</button>
+  <button id="cal" type="button" disabled>キャリブレーション</button>
+</div></div>
+<div id="flash"></div>
+
+<script>
+(function(){
+"use strict";
+var $=function(id){return document.getElementById(id)};
+var now=function(){return performance.now()};
+
+/* ---------- settings ---------- */
+var DEF={preset:"high",k:6,thrSrc:"k",thrAbs:0.05,mode:"instant",win:250,smooth:1,source:"accel",
+  release:80,cooldown:300,sound:true,vol:70,pitch:660,len:90,flash:true};
+var PRESET={low:15,std:9,high:6,ultra:3.5};
+var S=Object.assign({},DEF);
+try{var sv=JSON.parse(localStorage.getItem("bidou-pon")||"null");if(sv&&typeof sv==="object")for(var key in DEF)if(typeof sv[key]===typeof DEF[key])S[key]=sv[key]}catch(e){}
+function save(){try{localStorage.setItem("bidou-pon",JSON.stringify(S))}catch(e){}}
+
+/* ---------- signal pipeline: baseline removal -> light smoothing -> delta / deviation / RMS ---------- */
+var TAU=1000;            // ms, slow baseline (gravity, posture, gyro bias)
+function Pipe(cfg){
+  this.n=cfg.smooth;this.mode=cfg.mode;this.win=cfg.win;
+  this.init=false;this.bx=0;this.by=0;this.bz=0;this.lt=0;
+  this.rx=new Float64Array(4);this.ry=new Float64Array(4);this.rz=new Float64Array(4);this.ri=0;this.rc=0;
+  this.px=0;this.py=0;this.pz=0;
+  this.wt=new Float64Array(512);this.wv=new Float64Array(512);this.wh=0;this.wn=0;this.ws=0;
+  this.sx=0;this.sy=0;this.sz=0;this.dx=0;this.dy=0;this.dz=0;this.dev=0;this.delta=0;this.rms=0;this.value=0;
+}
+Pipe.prototype.push=function(x,y,z,t){
+  if(!this.init){this.init=true;this.bx=x;this.by=y;this.bz=z;this.lt=t}
+  var dt=t-this.lt;if(dt<1)dt=1;if(dt>200)dt=200;this.lt=t;
+  var a=dt/(TAU+dt);
+  this.bx+=a*(x-this.bx);this.by+=a*(y-this.by);this.bz+=a*(z-this.bz);
+  var n=this.n,i=this.ri;
+  this.rx[i]=x-this.bx;this.ry[i]=y-this.by;this.rz[i]=z-this.bz;
+  this.ri=(i+1)%n;if(this.rc<n)this.rc++;
+  var sx=0,sy=0,sz=0,c=this.rc;
+  for(var j=0;j<c;j++){sx+=this.rx[j];sy+=this.ry[j];sz+=this.rz[j]}
+  sx/=c;sy/=c;sz/=c;
+  this.dx=sx-this.px;this.dy=sy-this.py;this.dz=sz-this.pz;
+  this.px=sx;this.py=sy;this.pz=sz;this.sx=sx;this.sy=sy;this.sz=sz;
+  var d2=sx*sx+sy*sy+sz*sz;
+  this.dev=Math.sqrt(d2);
+  this.delta=Math.sqrt(this.dx*this.dx+this.dy*this.dy+this.dz*this.dz);
+  // RMS over a short time window (ring buffer, oldest dropped by timestamp)
+  var cap=512,tail=(this.wh-this.wn+cap)%cap;
+  while(this.wn>0&&(t-this.wt[tail]>this.win||this.wn>=cap)){this.ws-=this.wv[tail];tail=(tail+1)%cap;this.wn--}
+  this.wt[this.wh]=t;this.wv[this.wh]=d2;this.wh=(this.wh+1)%cap;this.wn++;this.ws+=d2;
+  if(this.ws<0)this.ws=0;
+  this.rms=Math.sqrt(this.ws/this.wn);
+  this.value=this.mode==="rms"?this.rms:Math.max(this.dev,this.delta);
+  return this;
+};
+
+/* ---------- noise model from calibration samples (replayed through the current pipeline) ---------- */
+var DEFAULT_NOISE={accel:{mean:0.02,sd:0.01},gyro:{mean:0.06,sd:0.03}};
+var calib=null;          // {accel:[t,x,y,z,...], gyro:[...]}
+var noise={mean:0.02,sd:0.01,res:0,calibrated:false,n:0};
+function median(a){var b=Array.prototype.slice.call(a).sort(function(p,q){return p-q});var m=b.length>>1;return b.length%2?b[m]:(b[m-1]+b[m])/2}
+function computeNoise(){
+  var arr=calib&&calib[S.source];
+  if(!arr||arr.length<4*20){var d=DEFAULT_NOISE[S.source];noise={mean:d.mean,sd:d.sd,res:0,calibrated:false,n:0};return}
+  var p=new Pipe(S),vals=[],t0=arr[0],res=Infinity;
+  for(var i=0;i<arr.length;i+=4){
+    p.push(arr[i+1],arr[i+2],arr[i+3],arr[i]);
+    if(arr[i]-t0>400)vals.push(p.value);
+    if(i>=4)for(var a=1;a<=3;a++){var df=Math.abs(arr[i+a]-arr[i+a-4]);if(df>1e-9&&df<res)res=df}
+  }
+  if(vals.length<10){vals=[];p=new Pipe(S);for(i=0;i<arr.length;i+=4){p.push(arr[i+1],arr[i+2],arr[i+3],arr[i]);vals.push(p.value)}}
+  var med=median(vals),dev=vals.map(function(v){return Math.abs(v-med)}),sd=1.4826*median(dev);
+  if(sd<=0){var m=0;vals.forEach(function(v){m+=v});m/=vals.length;var q=0;vals.forEach(function(v){q+=(v-m)*(v-m)});sd=Math.sqrt(q/vals.length);med=m}
+  if(!isFinite(res))res=0;
+  var quant=res>=0.02?res:0;                       // browser rounds readings to coarse steps
+  sd=Math.max(sd,quant*0.25,1e-4);
+  noise={mean:med,sd:sd,res:quant,calibrated:true,n:vals.length};
+}
+function thr(){return S.thrSrc==="abs"?S.thrAbs:noise.mean+S.k*noise.sd}
+function kEff(){return (thr()-noise.mean)/noise.sd}
+
+/* ---------- audio ---------- */
+var ctx=null;
+function audioInit(){
+  try{
+    if(!ctx){var AC=window.AudioContext||window.webkitAudioContext;if(!AC)return;ctx=new AC({latencyHint:"interactive"})}
+    if(ctx.state!=="running")ctx.resume();
+  }catch(e){ctx=null}
+}
+function pon(){
+  if(!S.sound||!ctx||S.vol<=0)return;
+  try{
+    var t=ctx.currentTime,len=S.len/1000,o=ctx.createOscillator(),g=ctx.createGain();
+    o.type="sine";o.frequency.setValueAtTime(S.pitch*1.5,t);o.frequency.exponentialRampToValueAtTime(S.pitch,t+Math.min(0.03,len*0.4));
+    var v=Math.pow(S.vol/100,2)*0.9;
+    g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(v,t+0.003);g.gain.exponentialRampToValueAtTime(0.0001,t+len);
+    o.connect(g);g.connect(ctx.destination);o.start(t);o.stop(t+len+0.02);
+  }catch(e){}
+}
+
+/* ---------- runtime state ---------- */
+var R={on:false,demo:false,calibrating:false,calT0:0,calBuf:null,pipe:new Pipe(S),armed:true,lastHit:-1e9,hold:0,
+  count:0,lastHitClock:"",samples:0,lastT:0,dtEma:0,interval:null,live:0,liveInit:false,
+  x:0,y:0,z:0,mag:0,srcName:"",gyroOk:false,linOk:false,wake:null,demoTimer:null,startTimer:null};
+var HN=1024,hT=new Float64Array(HN),hV=new Float64Array(HN),hI=0,hC=0;
+var hits=[];
+
+function resetPipe(){R.pipe=new Pipe(S);R.armed=false;R.hold=now()+350;R.liveInit=false}
+
+function sample(ax,ay,az,gx,gy,gz,lin,interval){
+  var t=now();
+  if(R.lastT){var dt=t-R.lastT;if(dt>0&&dt<500)R.dtEma=R.dtEma?R.dtEma+0.05*(dt-R.dtEma):dt}
+  R.lastT=t;R.samples++;R.interval=interval;R.linOk=lin;
+  var gOk=gx!=null&&gy!=null&&gz!=null;R.gyroOk=gOk;
+  if(R.calibrating){
+    R.calBuf.accel.push(t,ax,ay,az);if(gOk)R.calBuf.gyro.push(t,gx,gy,gz);
+    if(t-R.calT0>=2500)finishCal();
+  }
+  var useG=S.source==="gyro"&&gOk;
+  var x=useG?gx:ax,y=useG?gy:ay,z=useG?gz:az;
+  R.x=x;R.y=y;R.z=z;R.mag=Math.sqrt(x*x+y*y+z*z);
+  R.srcName=useG?"rotationRate":(lin?"acceleration":"accelerationIncludingGravity");
+  var p=R.pipe.push(x,y,z,t),v=p.value;
+  hT[hI]=t;hV[hI]=v;hI=(hI+1)%HN;if(hC<HN)hC++;
+  if(!R.liveInit){R.live=v;R.liveInit=true}else R.live+=0.03*(v-R.live);
+  if(R.calibrating||t<R.hold)return;
+  var th=thr();
+  if(!R.armed){if(v<=th*S.release/100)R.armed=true}
+  else if(v>=th&&t-R.lastHit>=S.cooldown){
+    R.armed=false;R.lastHit=t;R.count++;pon();
+    hits.push(t);if(hits.length>40)hits.shift();
+    var d=new Date();R.lastHitClock=d.toLocaleTimeString("ja-JP",{hour12:false})+"."+String(d.getMilliseconds()).padStart(3,"0");
+    if(S.flash)flash();
+  }
+}
+var flashEl=$("flash"),reduce=window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches;
+function flash(){try{flashEl.animate([{opacity:reduce?0.25:0.55},{opacity:0}],{duration:reduce?120:240,easing:"ease-out"})}catch(e){}}
+
+function onMotion(e){
+  var a=e.acceleration,ag=e.accelerationIncludingGravity,r=e.rotationRate,lin=!!(a&&a.x!=null&&a.y!=null&&a.z!=null);
+  var s=lin?a:ag;
+  if(!s||s.x==null||s.y==null||s.z==null)return;
+  sample(s.x,s.y,s.z,r?r.alpha:null,r?r.beta:null,r?r.gamma:null,lin,e.interval);
+}
+
+/* ---------- calibration ---------- */
+function startCal(){
+  if(!R.on)return;
+  R.calibrating=true;R.calT0=now();R.calBuf={accel:[],gyro:[]};
+}
+function finishCal(){
+  R.calibrating=false;
+  if(R.calBuf.accel.length<4*20){calMsg="キャリブレーションに必要なデータが足りませんでした。もう一度試してください。";return}
+  calib=R.calBuf;computeNoise();resetPipe();calMsg="";syncUI();
+}
+var calMsg="";
+
+/* ---------- start / stop ---------- */
+var MSG_PREVIEW="このプレビュー環境ではモーションセンサーを取得できません。対応ブラウザで直接開いてください。";
+function showMsg(t){$("msgText").textContent=t;$("msg").hidden=false}
+function begin(){R.on=true;R.samples=0;R.lastT=0;R.dtEma=0;hC=0;hI=0;hits.length=0;resetPipe();$("go").textContent="停止";$("go").dataset.on="1";$("cal").disabled=false;
+  try{if(navigator.wakeLock)navigator.wakeLock.request("screen").then(function(w){R.wake=w},function(){})}catch(e){}}
+function stop(){
+  R.on=false;R.calibrating=false;window.removeEventListener("devicemotion",onMotion);
+  clearInterval(R.demoTimer);clearTimeout(R.startTimer);R.demoTimer=null;R.demo=false;$("demoBox").hidden=true;
+  $("go").textContent="センサー開始";$("go").dataset.on="0";$("cal").disabled=true;
+  try{if(R.wake){R.wake.release();R.wake=null}}catch(e){}
+}
+function start(){
+  audioInit();                                   // must happen inside the tap
+  $("msg").hidden=true;
+  if(typeof DeviceMotionEvent==="undefined"){showMsg("このブラウザはモーションセンサー（DeviceMotionEvent）に対応していません。iPhoneのSafariやAndroidのChromeで開いてください。");return}
+  var go=function(){
+    begin();window.addEventListener("devicemotion",onMotion);
+    R.startTimer=setTimeout(function(){
+      if(R.on&&!R.demo&&R.samples===0){stop();showMsg(MSG_PREVIEW)}
+    },1800);
+    waitFirst();
+  };
+  if(typeof DeviceMotionEvent.requestPermission==="function"){
+    DeviceMotionEvent.requestPermission().then(function(res){
+      if(res==="granted")go();
+      else showMsg("モーションセンサーの使用が許可されませんでした。ページを再読み込みして、もう一度「センサー開始」を押し、確認画面で「許可」を選んでください。");
+    },function(){showMsg(MSG_PREVIEW)});
+  }else go();
+}
+function waitFirst(){            // auto-calibrate once data is flowing
+  var n=0,id=setInterval(function(){
+    if(!R.on){clearInterval(id);return}
+    if(R.samples>10){clearInterval(id);startCal()}
+    else if(++n>40)clearInterval(id);
+  },100);
+}
+
+/* ---------- demo signal (clearly labelled, only when no sensor) ---------- */
+var burst={amp:0,t0:0,kind:""};
+function gauss(){var u=0,v=0;while(!u)u=Math.random();v=Math.random();return Math.sqrt(-2*Math.log(u))*Math.cos(6.2832*v)}
+function startDemo(){
+  audioInit();$("msg").hidden=true;stop();R.demo=true;begin();$("demoBox").hidden=false;
+  R.demoTimer=setInterval(function(){
+    var t=now(),b=0,e=t-burst.t0;
+    if(burst.kind==="twitch"&&e<120)b=0.09*Math.exp(-e/35)*Math.cos(e/9);
+    if(burst.kind==="tremor"&&e<900)b=0.035*Math.sin(e/14)*Math.sin(Math.PI*e/900);
+    sample(0.3+gauss()*0.006+b,0.1+gauss()*0.006+b*0.5,9.78+gauss()*0.008+b*0.7,
+      0.2+gauss()*0.03+b*14,gauss()*0.03+b*9,gauss()*0.03,false,16);
+  },16);
+  waitFirst();
+}
+
+/* ---------- UI wiring ---------- */
+var T_MIN=0.0005,T_MAX=20,K_MIN=1,K_MAX=40;
+function toLog(p,a,b){return a*Math.pow(b/a,p/1000)}
+function fromLog(v,a,b){return Math.round(1000*Math.log(Math.min(b,Math.max(a,v))/a)/Math.log(b/a))}
+function fmt(v){if(v==null||!isFinite(v))return "–";var a=Math.abs(v);return a<0.1?v.toFixed(4):a<10?v.toFixed(3):v.toFixed(2)}
+function unit(){return S.source==="gyro"&&(R.gyroOk||!R.on)?"°/s":"m/s²"}
+function seg(id,cur,fn){
+  var el=$(id);
+  Array.prototype.forEach.call(el.children,function(b){b.setAttribute("aria-pressed",String(b.dataset.v===String(cur)))});
+  if(!el._w){el._w=true;el.addEventListener("click",function(e){var b=e.target.closest("button");if(b)fn(b.dataset.v)})}
+}
+function setK(k){S.k=Math.min(K_MAX,Math.max(K_MIN,k));S.thrSrc="k";var m="custom";for(var n in PRESET)if(Math.abs(PRESET[n]-S.k)<0.01)m=n;S.preset=m;after()}
+function setThr(v){S.thrAbs=Math.min(T_MAX,Math.max(T_MIN,v));S.thrSrc="abs";S.preset="custom";after()}
+function after(){R.armed=false;save();syncUI()}
+function rebuild(){computeNoise();resetPipe();save();syncUI()}
+
+function syncUI(){
+  seg("presetSeg",S.preset,function(v){if(v==="custom"){S.preset="custom";after()}else{S.preset=v;S.k=PRESET[v];S.thrSrc="k";after()}});
+  seg("modeSeg",S.mode,function(v){S.mode=v;rebuild()});
+  seg("srcSeg",S.source,function(v){S.source=v;S.thrSrc="k";rebuild()});
+  seg("smSeg",S.smooth,function(v){S.smooth=+v;rebuild()});
+  var th=thr(),k=kEff();
+  $("kRange").value=fromLog(k,K_MIN,K_MAX);$("kOut").textContent=(k<0?"ノイズ以下":k.toFixed(1)+"σ");
+  $("thrRange").value=fromLog(th,T_MIN,T_MAX);$("thrOut").textContent=fmt(th)+" "+unit();
+  $("winRange").value=S.win;$("winOut").textContent=S.win+" ms";$("winCtl").hidden=S.mode!=="rms";
+  $("modeHelp").textContent=S.mode==="rms"?"短い時間窓の中の揺れの大きさ（RMS）で判定します。続く震えに向いています。":"前回値からの急な変化と、静止状態からのずれで判定します。ピクッという動きや動き始めに向いています。";
+  $("relRange").value=S.release;$("relOut").textContent=S.release+"%（"+fmt(th*S.release/100)+"）";
+  $("cdRange").value=S.cooldown;$("cdOut").textContent=S.cooldown+" ms";
+  $("sndOn").checked=S.sound;$("flashOn").checked=S.flash;
+  $("volRange").value=S.vol;$("volOut").textContent=S.vol+"%";
+  $("pitRange").value=S.pitch;$("pitOut").textContent=S.pitch+" Hz";
+  $("lenRange").value=S.len;$("lenOut").textContent=S.len+" ms";
+  $("unit").textContent=unit();
+  var ad=$("advice"),txt,sub,c;
+  if(k>=8){txt="安定";sub="ノイズではほぼ鳴りません。小さな動きは拾いにくくなります。";c="var(--signal)"}
+  else if(k>=5){txt="やや敏感";sub="小さな動きを拾います。誤検知はまれです。";c="var(--signal)"}
+  else if(k>=3){txt="非常に敏感";sub="ごく僅かな動きまで拾います。ときどきノイズで鳴ります。";c="var(--thr)"}
+  else{txt="ノイズによる誤検知の可能性あり";sub="閾値がセンサー自体のノイズに近いか、それ以下です。静止していても鳴ります。";c="var(--hit)"}
+  if(!noise.calibrated)sub="まだ静止時ノイズを測っていません（仮の値で計算中）。"+sub;
+  if(noise.res)sub+=" このブラウザはセンサー値を約"+noise.res.toFixed(2)+"刻みに丸めているため、それより小さな動きは検知できません。";
+  ad.style.setProperty("--c",c);ad.textContent=txt;var sp=document.createElement("span");sp.textContent=sub;ad.appendChild(sp);
+}
+function bindRange(id,fn){$(id).addEventListener("input",function(e){fn(+e.target.value)})}
+bindRange("kRange",function(p){setK(toLog(p,K_MIN,K_MAX))});
+bindRange("thrRange",function(p){setThr(toLog(p,T_MIN,T_MAX))});
+$("kDn").onclick=function(){setK(Math.max(K_MIN,kEff())-0.1)};$("kUp").onclick=function(){setK(Math.max(K_MIN,kEff())+0.1)};
+$("tDn").onclick=function(){setThr(thr()*0.98)};$("tUp").onclick=function(){setThr(thr()*1.02)};
+bindRange("winRange",function(v){S.win=v;rebuild()});
+bindRange("relRange",function(v){S.release=v;save();syncUI()});
+bindRange("cdRange",function(v){S.cooldown=v;save();syncUI()});
+bindRange("volRange",function(v){S.vol=v;save();syncUI()});
+bindRange("pitRange",function(v){S.pitch=v;save();syncUI()});
+bindRange("lenRange",function(v){S.len=v;save();syncUI()});
+$("sndOn").onchange=function(e){S.sound=e.target.checked;if(S.sound)audioInit();save()};
+$("flashOn").onchange=function(e){S.flash=e.target.checked;save()};
+$("testSnd").onclick=function(){audioInit();var s=S.sound;S.sound=true;pon();S.sound=s};
+$("resetCnt").onclick=function(){R.count=0;R.lastHitClock="";hits.length=0};
+$("go").onclick=function(){if(R.on)stop();else start()};
+$("cal").onclick=function(){audioInit();startCal()};
+$("demoBtn").onclick=startDemo;
+$("demoTwitch").onclick=function(){burst={kind:"twitch",t0:now()}};
+$("demoTremor").onclick=function(){burst={kind:"tremor",t0:now()}};
+document.addEventListener("visibilitychange",function(){if(!document.hidden&&R.on&&navigator.wakeLock&&!R.wake){try{navigator.wakeLock.request("screen").then(function(w){R.wake=w},function(){})}catch(e){}}});
+
+/* ---------- rendering ---------- */
+var cv=$("cv"),g=cv.getContext("2d"),col={},colT=0,SPAN=6000,textT=0;
+function colors(){var cs=getComputedStyle(document.documentElement);["--signal","--thr","--hit","--muted","--line","--ink"].forEach(function(n){col[n]=cs.getPropertyValue(n).trim()})}
+function draw(){
+  var t=now();
+  if(t-colT>1000){colors();colT=t}
+  var dpr=window.devicePixelRatio||1,w=cv.clientWidth,h=cv.clientHeight;
+  if(cv.width!==Math.round(w*dpr)||cv.height!==Math.round(h*dpr)){cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr)}
+  g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,w,h);
+  var th=thr(),top=th/0.6,ref=R.on?t:(R.lastT||t);
+  var Y=function(v){return h-2-Math.min(v/top,1)*(h-6)};
+  // noise band
+  g.globalAlpha=0.16;g.fillStyle=col["--muted"];var yn=Y(noise.mean+noise.sd);g.fillRect(0,yn,w,h-yn);g.globalAlpha=1;
+  // grid
+  g.strokeStyle=col["--line"];g.lineWidth=1;g.beginPath();for(var s=1;s<6;s++){var gx=Math.round(w*s/6)+0.5;g.moveTo(gx,0);g.lineTo(gx,h)}g.stroke();
+  // thresholds
+  var yt=Math.round(Y(th))+0.5,yr=Math.round(Y(th*S.release/100))+0.5;
+  g.strokeStyle=col["--thr"];g.lineWidth=2;g.beginPath();g.moveTo(0,yt);g.lineTo(w,yt);g.stroke();
+  g.lineWidth=1;g.setLineDash([3,4]);g.beginPath();g.moveTo(0,yr);g.lineTo(w,yr);g.stroke();g.setLineDash([]);
+  g.font='600 11px "IBM Plex Mono",ui-monospace,monospace';g.fillStyle=col["--thr"];g.textBaseline="bottom";g.textAlign="left";
+  g.fillText("閾値 "+fmt(th),6,yt-3);
+  // hits
+  g.strokeStyle=col["--hit"];g.lineWidth=2;
+  for(var i=0;i<hits.length;i++){var hx=w-(ref-hits[i])/SPAN*w;if(hx<0)continue;g.beginPath();g.moveTo(hx,0);g.lineTo(hx,h);g.stroke()}
+  // trace
+  if(hC>1){
+    g.strokeStyle=col["--signal"];g.lineWidth=1.6;g.lineJoin="round";g.beginPath();var first=true,lx=0,ly=0;
+    for(var n=hC-1;n>=0;n--){var idx=(hI-1-n+HN*2)%HN,x=w-(ref-hT[idx])/SPAN*w;if(x<-4)continue;var y=Y(hV[idx]);if(first){g.moveTo(x,y);first=false}else g.lineTo(x,y);lx=x;ly=y}
+    g.stroke();
+    if(!first){g.fillStyle=col["--signal"];g.beginPath();g.arc(Math.min(lx,w-4),ly,3.5,0,6.2832);g.fill()}
+  }
+  // bar meter (same scale: threshold sits at 60%)
+  var v=R.on?R.pipe.value:0,f=$("fill"),ratio=v/th;
+  f.style.transform="scaleX("+Math.min(1,ratio*0.6).toFixed(4)+")";f.className=ratio>=1?"over":"";
+  $("mkR").style.left=(S.release*0.6).toFixed(1)+"%";$("mkN").style.left=Math.min(98,Math.max(0,noise.mean/th*60)).toFixed(1)+"%";
+
+  // status
+  var st=$("status"),sub=$("sub"),sTxt,sKey,sSub;
+  if(!R.on){sTxt="停止中";sKey="off";sSub=calMsg||"スマホを身体に固定して「センサー開始」を押してください。"}
+  else if(R.calibrating){sTxt="静止時ノイズを計測中";sKey="off";sSub="スマホを動かさずにお待ちください（あと"+Math.max(0,(2500-(t-R.calT0))/1000).toFixed(1)+"秒）"}
+  else if(t-R.lastHit<450){sTxt="微細な動きを検知！";sKey="hit";sSub=" "}
+  else{sTxt="待機中";sKey="idle";sSub=R.demo?"デモ信号で動作中です。":(calMsg||(R.samples?"動きを待っています。":"センサーの応答を待っています…"))}
+  if(st.textContent!==sTxt)st.textContent=sTxt;st.dataset.s=sKey;if(sub.textContent!==sSub)sub.textContent=sSub;
+  $("cnt").textContent=R.count;
+
+  if(t-textT>90){textT=t;
+    var p=R.pipe,u=unit();
+    $("val").textContent=R.on?fmt(v):"0.0000";
+    $("pct").textContent=(R.on?Math.min(999,Math.round(ratio*100)):0)+"%";
+    $("gDelta").textContent=R.on?fmt(p.delta):"–";
+    $("gLive").textContent=R.on&&R.liveInit?fmt(R.live):"–";
+    $("gNoise").textContent=fmt(noise.mean)+(noise.calibrated?" ±"+fmt(noise.sd):"（仮）");
+    $("gThr").textContent=fmt(th)+" "+u;
+    $("gXYZ").textContent=R.on&&R.samples?fmt(R.x)+" / "+fmt(R.y)+" / "+fmt(R.z):"– / – / –";
+    var hz=R.dtEma?1000/R.dtEma:0;$("gHz").textContent=R.on&&hz?hz.toFixed(0)+" Hz":"–";
+    $("gLast").textContent=R.lastHitClock||"–";
+    if($("dbgDetails").open){
+      var iv=R.interval;if(iv!=null&&iv>0&&iv<1)iv*=1000;       // some iOS versions report seconds
+      var rows=[["X",fmt(R.x)],["Y",fmt(R.y)],["Z",fmt(R.z)],["deltaX",fmt(p.dx)],["deltaY",fmt(p.dy)],["deltaZ",fmt(p.dz)],
+        ["magnitude",fmt(R.mag)],["deltaMagnitude",fmt(p.delta)],["deviation（基準値除去後）",fmt(p.dev)],["RMS（"+S.win+" ms）",fmt(p.rms)],
+        ["noiseFloor",fmt(noise.mean)],["noise σ",fmt(noise.sd)],["threshold",fmt(th)],["release",fmt(th*S.release/100)],
+        ["threshold / σ",kEff().toFixed(2)],["sensor interval",(iv!=null?(+iv).toFixed(1)+" ms":"–")+(hz?" / 実測 "+(1000/hz).toFixed(1)+" ms":"")],
+        ["source",R.demo?"デモ信号":(R.srcName||"–")],["単位",u],["値の刻み",noise.res?noise.res.toFixed(3):"検出なし"],["校正サンプル数",String(noise.n)]];
+      var tb=$("dbg");
+      if(tb.children.length!==rows.length){tb.textContent="";rows.forEach(function(r){var tr=document.createElement("tr"),a=document.createElement("td"),b=document.createElement("td");a.textContent=r[0];tr.appendChild(a);tr.appendChild(b);tb.appendChild(tr)})}
+      rows.forEach(function(r,i){var c=tb.children[i];c.firstChild.textContent=r[0];c.lastChild.textContent=r[1]});
+    }
+  }
+  requestAnimationFrame(draw);
+}
+computeNoise();syncUI();colors();requestAnimationFrame(draw);
+window.__bidou={Pipe:Pipe,R:R,S:S,thr:thr,noise:function(){return noise}};
+})();
+</script>
+</body></html>
